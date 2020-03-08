@@ -2,15 +2,13 @@
 authors = ["Akihiro Yamamoto <ak1211@mail.ak1211.com>"]
 categories = ["embedded", "no-std"]
 description = "hello, world"
-documentation = "https://github.com/ak1211/hello-nucleo-oled/README.md"
-keywords = ["arm", "cortex-m", "ssd1331"]
+documentation = "https://github.com/ak1211/hello-nucleo-so2002/README.md"
+keywords = ["arm", "cortex-m", "so2002"]
 license = "Apache-2.0"
-name = "hello-nucleo-oled"
-repository = "https://github.com/ak1211/hello-nucleo-oled"
+name = "hello-nucleo-so2002"
+repository = "https://github.com/ak1211/hello-nucleo-so2002"
 version = "0.1.0"
 [dependencies]
-ssd1331 = "0.1.3"
-embedded-graphics = "0.4.9"
 embedded-hal = "0.2.2"
 cortex-m = "0.6.2"
 cortex-m-rt = "0.6.12"
@@ -28,4 +26,3 @@ version = "0.2.0"
 codegen-units = 1
 debug = true
 lto = true
-

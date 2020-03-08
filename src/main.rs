@@ -11,25 +11,97 @@ extern crate cortex_m_semihosting;
 extern crate embedded_hal;
 extern crate stm32f30x_hal as hal;
 
-extern crate embedded_graphics;
-extern crate ssd1331;
-
 use hal::delay::Delay;
-use hal::gpio::gpioa::PA9;
-use hal::gpio::gpiob::PB6;
-use hal::gpio::gpioc::PC7;
-use hal::gpio::{Output, PushPull};
+use hal::i2c::I2c;
 use hal::prelude::*;
-use hal::spi::Spi;
 use hal::stm32f30x;
 
 use cortex_m_rt::entry;
-use embedded_graphics::{
-    coord::Coord, fonts::Font6x8, pixelcolor::PixelColorU16, prelude::*, primitives::Circle,
-    primitives::Line, primitives::Rect, primitives::Triangle,
-};
-use embedded_hal::digital::v2::OutputPin;
-use ssd1331::{prelude::*, Builder};
+
+// 0 1 1 1 1 0 SA0 (SA0 pin is default Hi)
+// 0 1 1 1 1 0 1
+// 011 1101 = (2+1)*16 + (8+4+1)*1 = 0x3d
+const OLED_ADDR: u8 = 0x3d;
+
+const USER_CHARACTERS: [[u8; 8]; 7] = [
+    // character code 0x00
+    [
+        0b00000000, // line 1
+        0b00000000, // line 2
+        0b00000000, // line 3
+        0b00000000, // line 4
+        0b00000000, // line 5
+        0b00000000, // line 6
+        0b00011111, // line 7
+        0b00000000, // line 8
+    ],
+    // character code 0x01
+    [
+        0b00000000, // line 1
+        0b00000000, // line 2
+        0b00000000, // line 3
+        0b00000000, // line 4
+        0b00000000, // line 5
+        0b00011111, // line 6
+        0b00011111, // line 7
+        0b00000000, // line 8
+    ],
+    // character code 0x02
+    [
+        0b00000000, // line 1
+        0b00000000, // line 2
+        0b00000000, // line 3
+        0b00000000, // line 4
+        0b00011111, // line 5
+        0b00011111, // line 6
+        0b00011111, // line 7
+        0b00000000, // line 8
+    ],
+    // character code 0x03
+    [
+        0b00000000, // line 1
+        0b00000000, // line 2
+        0b00000000, // line 3
+        0b00011111, // line 4
+        0b00011111, // line 5
+        0b00011111, // line 6
+        0b00011111, // line 7
+        0b00000000, // line 8
+    ],
+    // character code 0x04
+    [
+        0b00000000, // line 1
+        0b00000000, // line 2
+        0b00011111, // line 3
+        0b00011111, // line 4
+        0b00011111, // line 5
+        0b00011111, // line 6
+        0b00011111, // line 7
+        0b00000000, // line 8
+    ],
+    // character code 0x05
+    [
+        0b00000000, // line 1
+        0b00011111, // line 2
+        0b00011111, // line 3
+        0b00011111, // line 4
+        0b00011111, // line 5
+        0b00011111, // line 6
+        0b00011111, // line 7
+        0b00000000, // line 8
+    ],
+    // character code 0x06
+    [
+        0b00011111, // line 1
+        0b00011111, // line 2
+        0b00011111, // line 3
+        0b00011111, // line 4
+        0b00011111, // line 5
+        0b00011111, // line 6
+        0b00011111, // line 7
+        0b00000000, // line 8
+    ],
+];
 
 #[entry]
 fn main() -> ! {
@@ -39,113 +111,91 @@ fn main() -> ! {
     let mut flash = p.FLASH.constrain();
     let mut rcc = p.RCC.constrain();
 
-    let clocks = rcc
-        .cfgr
-        .sysclk(64.mhz())
-        .hclk(64.mhz())
-        .pclk1(32.mhz())
-        .pclk2(32.mhz())
-        .freeze(&mut flash.acr);
+    let clocks = rcc.cfgr.sysclk(8.mhz()).freeze(&mut flash.acr);
 
     let mut delay = Delay::new(cp.SYST, clocks);
-
-    let mut gpioa = p.GPIOA.split(&mut rcc.ahb);
     let mut gpiob = p.GPIOB.split(&mut rcc.ahb);
-    let mut gpioc = p.GPIOC.split(&mut rcc.ahb);
 
-    // OLED display SPI interface
-    let sck = gpiob.pb13.into_af5(&mut gpiob.moder, &mut gpiob.afrh);
-    let miso = gpiob.pb14.into_af5(&mut gpiob.moder, &mut gpiob.afrh);
-    let mosi = gpiob.pb15.into_af5(&mut gpiob.moder, &mut gpiob.afrh);
-    let spi = Spi::spi2(
-        p.SPI2,
-        (sck, miso, mosi),
-        embedded_hal::spi::Mode {
-            polarity: embedded_hal::spi::Polarity::IdleLow,
-            phase: embedded_hal::spi::Phase::CaptureOnFirstTransition,
-        },
-        8.mhz(),
-        clocks,
-        &mut rcc.apb1,
-    );
+    // OLED display I2C interface
+    let scl = gpiob.pb8.into_af4(&mut gpiob.moder, &mut gpiob.afrh);
+    let sda = gpiob.pb9.into_af4(&mut gpiob.moder, &mut gpiob.afrh);
+    let mut display = I2c::i2c1(p.I2C1, (scl, sda), 400.khz(), clocks, &mut rcc.apb1);
 
-    // OLED display CS, D/C, RESET pins
-    let mut oled_cs: PB6<Output<PushPull>> = gpiob
-        .pb6
-        .into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
+    // Wait 100ms until module control, recommended
+    delay.delay_ms(100u8);
 
-    let oled_dc: PA9<Output<PushPull>> = gpioa
-        .pa9
-        .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+    // Set CGRAM
+    for (i, ch) in USER_CHARACTERS.iter().enumerate() {
+        let code = i as u8;
+        display
+            .write(OLED_ADDR, &[0x00u8, 0x40u8 | (code << 3) | 0])
+            .unwrap();
+        delay.delay_ms(1u8);
+        for v in ch {
+            display.write(OLED_ADDR, &[0x40u8, *v]).unwrap();
+            delay.delay_ms(1u8);
+        }
+    }
 
-    let mut oled_reset: PC7<Output<PushPull>> = gpioc
-        .pc7
-        .into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+    // Clear Display
+    display.write(OLED_ADDR, &[0x00u8, 0x01u8]).unwrap();
+    delay.delay_ms(20u8);
+    // Return Home
+    display.write(OLED_ADDR, &[0x00u8, 0x02u8]).unwrap();
+    delay.delay_ms(2u8);
+    // Display ON, Cursor OFF, Blink OFF
+    display.write(OLED_ADDR, &[0x00u8, 0x0Cu8]).unwrap();
+    delay.delay_ms(2u8);
+    // Clear Display
+    display.write(OLED_ADDR, &[0x00u8, 0x01u8]).unwrap();
+    delay.delay_ms(20u8);
+    // Function Set (N = 2, DH = 0, RE = 1, IS = 0)
+    display.write(OLED_ADDR, &[0x00u8, 0x2Au8]).unwrap();
+    delay.delay_ms(1u8);
+    // OLED Characterization (SD = 1)
+    display.write(OLED_ADDR, &[0x00u8, 0x79u8]).unwrap();
+    delay.delay_ms(1u8);
+    // contrast set
+    display.write(OLED_ADDR, &[0x00u8, 0x81u8]).unwrap();
+    delay.delay_ms(1u8);
+    // Set Contrast Control
+    display.write(OLED_ADDR, &[0x00u8, 0xFFu8]).unwrap();
+    delay.delay_ms(1u8);
+    // OLED Characterization (SD = 0)
+    display.write(OLED_ADDR, &[0x00u8, 0x78u8]).unwrap();
+    delay.delay_ms(2u8);
+    // Function Set (N = 2, DH = 0, RE = 0, IS = 0)
+    display.write(OLED_ADDR, &[0x00u8, 0x28u8]).unwrap();
+    delay.delay_ms(1u8);
+ 
+    //
+    // Print to display.
+    //
+    let message = b"I2C OLED Yellow 20x2Hello World";
 
-    let mut display: GraphicsMode<_> = Builder::new().connect_spi(spi, oled_dc).into();
+    const BUF_SIZE: usize = 1 + 20 * 02; // 1 byte and 20 chars * 02 lines
+    let mut write_buf: [u8; BUF_SIZE] = [b' '; BUF_SIZE]; // clear to whitespace
 
-    // fall down to low the CS pin, activate the OLED display
-    OutputPin::set_low(&mut oled_cs).unwrap();
+    // first byte is set to D/C bit Hi
+    write_buf[0] = 0x40u8;
 
-    // initialize
-    display.reset(&mut oled_reset, &mut delay);
-    display.init().unwrap();
+    // after first bytes
+    write_buf[1..=message.len()].copy_from_slice(message);
 
-    let color = PixelColorU16(0xffff_u16);
+    // send to display.
+    display.write(OLED_ADDR, &write_buf).unwrap();
 
-    display.draw(
-        Triangle::new(Coord::new(4, 20), Coord::new(12, 6), Coord::new(20, 20))
-            .with_stroke(Some(color))
-            .with_stroke_width(3)
-            .into_iter(),
-    );
+    // display progress bar
+    let progress_bar: [u8; 8] = [b' ', 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
+    write_buf[32..32 + progress_bar.len()].copy_from_slice(&progress_bar);
 
-    display.draw(
-        Circle::new(Coord::new(30, 13), 7)
-            .with_stroke(Some(color))
-            .with_stroke_width(1)
-            .into_iter(),
-    );
-
-    display.draw(
-        Rect::new(Coord::new(42, 6), Coord::new(42 + 14, 6 + 14))
-            .with_stroke(Some(color))
-            .with_stroke_width(1)
-            .into_iter(),
-    );
-
-    display.draw(
-        Line::new(Coord::new(5, 25), Coord::new(60, 25))
-            .with_stroke(Some(color))
-            .with_stroke_width(10)
-            .into_iter(),
-    );
-
-    display.draw(
-        Font6x8::render_str("Hello World!")
-            .with_stroke(Some(PixelColorU16(0xf800_u16)))
-            .with_stroke_width(2)
-            .translate(Coord::new(5, 30))
-            .into_iter(),
-    );
-
-    display.draw(
-        Font6x8::render_str("Hello Rust!")
-            .with_stroke(Some(PixelColorU16(0x07e0_u16)))
-            .with_stroke_width(2)
-            .translate(Coord::new(5, 40))
-            .into_iter(),
-    );
-
-    display.draw(
-        Font6x8::render_str("Hello stm32!")
-            .with_stroke(Some(PixelColorU16(0x001f_u16)))
-            .with_stroke_width(2)
-            .translate(Coord::new(5, 50))
-            .into_iter(),
-    );
-
-    display.flush().unwrap();
-
-    loop {}
+    // Idle loop
+    let mut i = 0;
+    loop {
+        write_buf[40] = progress_bar[i];
+        i = i + 1 & 7;
+        // send to display.
+        display.write(OLED_ADDR, &write_buf).unwrap();
+        delay.delay_ms(100_u16);
+    }
 }
