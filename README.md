@@ -8,6 +8,8 @@ The device uses a hardware I2C interface to communicate.
 - breadboard and wires
 
 # Wiring
+**Note: I2C bus SCL and SDA with 2.7k pull-up resistor.**
+
 | 'NUCLEO-F302R8' arduino connector pins | 'SO2002 OLED display' pins |
 ----|----
 | GND (CN6)     | 1 VSS |
@@ -20,6 +22,9 @@ The device uses a hardware I2C interface to communicate.
 | D14 (CN5) SDA | 8 SDA_in |
 | D14 (CN5) SDA | 9 SDA_out |
 | -             | 10-14 NC|
+
+![wiring](https://user-images.githubusercontent.com/17291748/76162385-97e07800-6180-11ea-9947-4f1edd26f7cf.JPG)
+![Hello, World](https://user-images.githubusercontent.com/17291748/76162387-9d3dc280-6180-11ea-8a4f-f5ffe425a7d8.JPG)
 
 # Build
 cargo build --release
