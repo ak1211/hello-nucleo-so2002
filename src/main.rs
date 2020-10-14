@@ -1,15 +1,13 @@
-#![no_main]
 #![no_std]
+#![no_main]
 
-#[allow(unused_extern_crates)]
-extern crate panic_halt;
+// pick a panicking behavior
+use panic_halt as _; // you can put a breakpoint on `rust_begin_unwind` to catch panics
+// use panic_abort as _; // requires nightly
+// use panic_itm as _; // logs messages over ITM; requires ITM support
+// use panic_semihosting as _; // logs messages to the host stderr; requires a debugger
 
-extern crate cortex_m;
-extern crate cortex_m_rt;
-extern crate cortex_m_semihosting;
-
-extern crate embedded_hal;
-extern crate stm32f30x_hal as hal;
+use stm32f30x_hal as hal;
 
 use hal::delay::Delay;
 use hal::i2c::I2c;

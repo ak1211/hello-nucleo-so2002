@@ -27,7 +27,9 @@ The device uses a hardware I2C interface to communicate.
 ![Hello, World](https://user-images.githubusercontent.com/17291748/76162387-9d3dc280-6180-11ea-8a4f-f5ffe425a7d8.JPG)
 
 # Build
-cargo build --release
+$ cargo build --release
+
+$ cargo objcopy --release -- -O binary firmware.bin
 
 # License
 Licensed under
